@@ -1,70 +1,69 @@
-import { setupLocale } from '.';
+import React from 'react';
+import configureMockStore from 'redux-mock-store';
+import thunk from 'redux-thunk';
+import nock from 'nock';
+import { waitFor } from '@testing-library/react';
 
-const enMessages = {
-  troubleStarting: {
-    message:
-      'MetaMask had trouble starting. This error could be intermittent, so try restarting the extension.',
-  },
-  restartMetamask: {
-    message: 'Restart MetaMask',
-  },
-  stillGettingMessage: {
-    message: 'Still getting this message?',
-  },
-  sendBugReport: {
-    message: 'Send us a bug report.',
-  },
-};
+import {
+  renderWithProvider,
+  createSwapsMockStore,
+  setBackgroundConnection,
+  MOCKS,
+  CONSTANTS,
+} from '../../../test/jest';
+import Swap from '.';
 
-const esMessages = {
-  troubleStarting: {
-    message:
-      'MetaMask tuvo problemas para iniciarse. Este error podría ser intermitente, así que intente reiniciar la extensión.',
-  },
-  restartMetamask: {
-    message: 'Reiniciar metamáscara',
-  },
-  sendBugReport: {
-    message: 'Envíenos un informe de errores.',
-  },
-};
+const middleware = [thunk];
 
-jest.mock('./helpers/utils/i18n-helper', () => ({
-  fetchLocale: jest.fn((locale) => (locale === 'en' ? enMessages : esMessages)),
-  loadRelativeTimeFormatLocaleData: jest.fn(),
-}));
+setBackgroundConnection({
+  resetPostFetchState: jest.fn(),
+  resetSwapsState: jest.fn(),
+  setSwapsLiveness: jest.fn(() => true),
+  setSwapsTokens: jest.fn(),
+  setSwapsTxGasPrice: jest.fn(),
+  disconnectGasFeeEstimatePoller: jest.fn(),
+  getGasFeeEstimatesAndStartPolling: jest.fn(),
+});
 
-describe('Index Tests', () => {
-  it('should get locale messages by calling setupLocale', async () => {
-    let result = await setupLocale('en');
-    const { currentLocaleMessages: clm, enLocaleMessages: elm } = result;
-    expect(clm).toBeDefined();
-    expect(elm).toBeDefined();
-    expect(clm.troubleStarting).toStrictEqual(enMessages.troubleStarting);
+describe('Swap', () => {
+  let featureFlagsNock;
 
-    expect(clm.restartMetamask).toStrictEqual(enMessages.restartMetamask);
+  beforeEach(() => {
+    nock(CONSTANTS.METASWAP_BASE_URL)
+      .get('/networks/1/topAssets')
+      .reply(200, MOCKS.TOP_ASSETS_GET_RESPONSE);
 
-    expect(clm.stillGettingMessage).toStrictEqual(
-      enMessages.stillGettingMessage,
-    );
+    nock(CONSTANTS.METASWAP_BASE_URL)
+      .get('/refreshTime')
+      .reply(200, MOCKS.REFRESH_TIME_GET_RESPONSE);
 
-    expect(clm.sendBugReport).toStrictEqual(enMessages.sendBugReport);
+    nock(CONSTANTS.METASWAP_BASE_URL)
+      .get('/networks/1/aggregatorMetadata')
+      .reply(200, MOCKS.AGGREGATOR_METADATA_GET_RESPONSE);
 
-    result = await setupLocale('es');
+    nock(CONSTANTS.GAS_API_URL)
+      .get('/networks/1/gasPrices')
+      .reply(200, MOCKS.GAS_PRICES_GET_RESPONSE);
 
-    const { currentLocaleMessages: clm2, enLocaleMessages: elm2 } = result;
-    expect(clm2).toBeDefined();
-    expect(elm2).toBeDefined();
+    nock(CONSTANTS.METASWAP_BASE_URL)
+      .get('/networks/1/tokens')
+      .reply(200, MOCKS.TOKENS_GET_RESPONSE);
 
-    expect(clm2.troubleStarting).toStrictEqual(esMessages.troubleStarting);
+    featureFlagsNock = nock(CONSTANTS.METASWAP_BASE_URL)
+      .get('/featureFlags')
+      .reply(200, MOCKS.createFeatureFlagsResponse());
+  });
 
-    expect(clm2.restartMetamask).toStrictEqual(esMessages.restartMetamask);
+  afterAll(() => {
+    nock.cleanAll();
+  });
 
-    expect(clm2.stillGettingMessage).toBeUndefined();
-    expect(elm2.stillGettingMessage).toStrictEqual(
-      enMessages.stillGettingMessage,
-    );
-
-    expect(clm2.sendBugReport).toStrictEqual(esMessages.sendBugReport);
+  it('renders the component with initial props', async () => {
+    const store = configureMockStore(middleware)(createSwapsMockStore());
+    const { container, getByText } = renderWithProvider(<Swap />, store);
+    await waitFor(() => expect(featureFlagsNock.isDone()).toBe(true));
+    expect(getByText('Swap')).toBeInTheDocument();
+    expect(getByText('Cancel')).toBeInTheDocument();
+    expect(container).toMatchSnapshot();
   });
 });

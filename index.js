@@ -1,154 +1,243 @@
-// Migrations must start at version 1 or later.
-// They are objects with a `version` number
-// and a `migrate` function.
-//
-// The `migrate` function receives the previous
-// config data format, and returns the new one.
+import copyToClipboard from 'copy-to-clipboard';
+import log from 'loglevel';
+import { clone, memoize } from 'lodash';
+import React from 'react';
+import { render } from 'react-dom';
+import browser from 'webextension-polyfill';
 
-import m002 from './002';
-import m003 from './003';
-import m004 from './004';
-import m005 from './005';
-import m006 from './006';
-import m007 from './007';
-import m008 from './008';
-import m009 from './009';
-import m010 from './010';
-import m011 from './011';
-import m012 from './012';
-import m013 from './013';
-import m014 from './014';
-import m015 from './015';
-import m016 from './016';
-import m017 from './017';
-import m018 from './018';
-import m019 from './019';
-import m020 from './020';
-import m021 from './021';
-import m022 from './022';
-import m023 from './023';
-import m024 from './024';
-import m025 from './025';
-import m026 from './026';
-import m027 from './027';
-import m028 from './028';
-import m029 from './029';
-import m030 from './030';
-import m031 from './031';
-import m032 from './032';
-import m033 from './033';
-import m034 from './034';
-import m035 from './035';
-import m036 from './036';
-import m037 from './037';
-import m038 from './038';
-import m039 from './039';
-import m040 from './040';
-import m041 from './041';
-import m042 from './042';
-import m043 from './043';
-import m044 from './044';
-import m045 from './045';
-import m046 from './046';
-import m047 from './047';
-import m048 from './048';
-import m049 from './049';
-import m050 from './050';
-import m051 from './051';
-import m052 from './052';
-import m053 from './053';
-import m054 from './054';
-import m055 from './055';
-import m056 from './056';
-import m057 from './057';
-import m058 from './058';
-import m059 from './059';
-import m060 from './060';
-import m061 from './061';
-import m062 from './062';
-import m063 from './063';
-import m064 from './064';
-import m065 from './065';
-import m066 from './066';
-import m067 from './067';
-import m068 from './068';
-import m069 from './069';
-import m070 from './070';
-import m071 from './071';
-import m072 from './072';
+import { getEnvironmentType } from '../app/scripts/lib/util';
+import { ALERT_TYPES } from '../shared/constants/alerts';
+import { SENTRY_STATE } from '../app/scripts/lib/setupSentry';
+import { ENVIRONMENT_TYPE_POPUP } from '../shared/constants/app';
+import * as actions from './store/actions';
+import configureStore from './store/store';
+import {
+  fetchLocale,
+  loadRelativeTimeFormatLocaleData,
+} from './helpers/utils/i18n-helper';
+import switchDirection from './helpers/utils/switch-direction';
+import {
+  getPermittedAccountsForCurrentTab,
+  getSelectedAddress,
+} from './selectors';
+import { ALERT_STATE } from './ducks/alerts';
+import {
+  getUnconnectedAccountAlertEnabledness,
+  getUnconnectedAccountAlertShown,
+} from './ducks/metamask/metamask';
+import Root from './pages';
+import txHelper from './helpers/utils/tx-helper';
 
-const migrations = [
-  m002,
-  m003,
-  m004,
-  m005,
-  m006,
-  m007,
-  m008,
-  m009,
-  m010,
-  m011,
-  m012,
-  m013,
-  m014,
-  m015,
-  m016,
-  m017,
-  m018,
-  m019,
-  m020,
-  m021,
-  m022,
-  m023,
-  m024,
-  m025,
-  m026,
-  m027,
-  m028,
-  m029,
-  m030,
-  m031,
-  m032,
-  m033,
-  m034,
-  m035,
-  m036,
-  m037,
-  m038,
-  m039,
-  m040,
-  m041,
-  m042,
-  m043,
-  m044,
-  m045,
-  m046,
-  m047,
-  m048,
-  m049,
-  m050,
-  m051,
-  m052,
-  m053,
-  m054,
-  m055,
-  m056,
-  m057,
-  m058,
-  m059,
-  m060,
-  m061,
-  m062,
-  m063,
-  m064,
-  m065,
-  m066,
-  m067,
-  m068,
-  m069,
-  m070,
-  m071,
-  m072,
-];
+log.setLevel(global.METAMASK_DEBUG ? 'debug' : 'warn');
 
-export default migrations;
+export default function launchMetamaskUi(opts, cb) {
+  const { backgroundConnection } = opts;
+  actions._setBackgroundConnection(backgroundConnection);
+  // check if we are unlocked first
+  backgroundConnection.getState(function (err, metamaskState) {
+    if (err) {
+      cb(err, metamaskState);
+      return;
+    }
+    startApp(metamaskState, backgroundConnection, opts).then((store) => {
+      setupDebuggingHelpers(store);
+      cb(null, store);
+    });
+  });
+}
+
+const _setupLocale = async (currentLocale) => {
+  const currentLocaleMessages = currentLocale
+    ? await fetchLocale(currentLocale)
+    : {};
+  const enLocaleMessages = await fetchLocale('en');
+
+  await loadRelativeTimeFormatLocaleData('en');
+  if (currentLocale) {
+    await loadRelativeTimeFormatLocaleData(currentLocale);
+  }
+
+  return { currentLocaleMessages, enLocaleMessages };
+};
+
+export const setupLocale = memoize(_setupLocale);
+
+async function startApp(metamaskState, backgroundConnection, opts) {
+  // parse opts
+  if (!metamaskState.featureFlags) {
+    metamaskState.featureFlags = {};
+  }
+
+  const { currentLocaleMessages, enLocaleMessages } = await setupLocale(
+    metamaskState.currentLocale,
+  );
+
+  if (metamaskState.textDirection === 'rtl') {
+    await switchDirection('rtl');
+  }
+
+  const draftInitialState = {
+    activeTab: opts.activeTab,
+
+    // metamaskState represents the cross-tab state
+    metamask: metamaskState,
+
+    // appState represents the current tab's popup state
+    appState: {},
+
+    localeMessages: {
+      current: currentLocaleMessages,
+      en: enLocaleMessages,
+    },
+  };
+
+  if (getEnvironmentType() === ENVIRONMENT_TYPE_POPUP) {
+    const { origin } = draftInitialState.activeTab;
+    const permittedAccountsForCurrentTab = getPermittedAccountsForCurrentTab(
+      draftInitialState,
+    );
+    const selectedAddress = getSelectedAddress(draftInitialState);
+    const unconnectedAccountAlertShownOrigins = getUnconnectedAccountAlertShown(
+      draftInitialState,
+    );
+    const unconnectedAccountAlertIsEnabled = getUnconnectedAccountAlertEnabledness(
+      draftInitialState,
+    );
+
+    if (
+      origin &&
+      unconnectedAccountAlertIsEnabled &&
+      !unconnectedAccountAlertShownOrigins[origin] &&
+      permittedAccountsForCurrentTab.length > 0 &&
+      !permittedAccountsForCurrentTab.includes(selectedAddress)
+    ) {
+      draftInitialState[ALERT_TYPES.unconnectedAccount] = {
+        state: ALERT_STATE.OPEN,
+      };
+      actions.setUnconnectedAccountAlertShown(origin);
+    }
+  }
+
+  const store = configureStore(draftInitialState);
+
+  // if unconfirmed txs, start on txConf page
+  const unapprovedTxsAll = txHelper(
+    metamaskState.unapprovedTxs,
+    metamaskState.unapprovedMsgs,
+    metamaskState.unapprovedPersonalMsgs,
+    metamaskState.unapprovedDecryptMsgs,
+    metamaskState.unapprovedEncryptionPublicKeyMsgs,
+    metamaskState.unapprovedTypedMessages,
+    metamaskState.network,
+    metamaskState.provider.chainId,
+  );
+  const numberOfUnapprovedTx = unapprovedTxsAll.length;
+  if (numberOfUnapprovedTx > 0) {
+    store.dispatch(
+      actions.showConfTxPage({
+        id: unapprovedTxsAll[0].id,
+      }),
+    );
+  }
+
+  backgroundConnection.onNotification((data) => {
+    if (data.method === 'sendUpdate') {
+      store.dispatch(actions.updateMetamaskState(data.params[0]));
+    } else {
+      throw new Error(
+        `Internal JSON-RPC Notification Not Handled:\n\n ${JSON.stringify(
+          data,
+        )}`,
+      );
+    }
+  });
+
+  // global metamask api - used by tooling
+  global.metamask = {
+    updateCurrentLocale: (code) => {
+      store.dispatch(actions.updateCurrentLocale(code));
+    },
+    setProviderType: (type) => {
+      store.dispatch(actions.setProviderType(type));
+    },
+    setFeatureFlag: (key, value) => {
+      store.dispatch(actions.setFeatureFlag(key, value));
+    },
+  };
+
+  // start app
+  render(<Root store={store} />, opts.container);
+
+  return store;
+}
+
+/**
+ * Return a "masked" copy of the given object.
+ *
+ * The returned object includes only the properties present in the mask. The
+ * mask is an object that mirrors the structure of the given object, except
+ * the only values are `true` or a sub-mask. `true` implies the property
+ * should be included, and a sub-mask implies the property should be further
+ * masked according to that sub-mask.
+ *
+ * @param {Object} object - The object to mask
+ * @param {Object<Object|boolean>} mask - The mask to apply to the object
+ */
+function maskObject(object, mask) {
+  return Object.keys(object).reduce((state, key) => {
+    if (mask[key] === true) {
+      state[key] = object[key];
+    } else if (mask[key]) {
+      state[key] = maskObject(object[key], mask[key]);
+    }
+    return state;
+  }, {});
+}
+
+function setupDebuggingHelpers(store) {
+  window.getCleanAppState = async function () {
+    const state = clone(store.getState());
+    state.version = global.platform.getVersion();
+    state.browser = window.navigator.userAgent;
+    state.completeTxList = await actions.getTransactions({
+      filterToCurrentNetwork: false,
+    });
+    return state;
+  };
+  window.getSentryState = function () {
+    const fullState = store.getState();
+    const debugState = maskObject(fullState, SENTRY_STATE);
+    return {
+      browser: window.navigator.userAgent,
+      store: debugState,
+      version: global.platform.getVersion(),
+    };
+  };
+}
+
+window.logStateString = async function (cb) {
+  const state = await window.getCleanAppState();
+  browser.runtime
+    .getPlatformInfo()
+    .then((platform) => {
+      state.platform = platform;
+      const stateString = JSON.stringify(state, null, 2);
+      cb(null, stateString);
+    })
+    .catch((err) => {
+      cb(err);
+    });
+};
+
+window.logState = function (toClipboard) {
+  return window.logStateString((err, result) => {
+    if (err) {
+      console.error(err.message);
+    } else if (toClipboard) {
+      copyToClipboard(result);
+      console.log('State log copied');
+    } else {
+      console.log(result);
+    }
+  });
+};

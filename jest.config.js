@@ -1,19 +1,43 @@
 module.exports = {
-  displayName: '/development',
-  collectCoverageFrom: ['<rootDir>/**/*.js'],
-  coverageDirectory: '../jest-coverage/development/',
+  collectCoverageFrom: [
+    '<rootDir>/app/scripts/controllers/permissions/**/*.js',
+    '<rootDir>/shared/**/*.js',
+    '<rootDir>/ui/**/*.js',
+  ],
+  coverageDirectory: './jest-coverage/main',
+  coveragePathIgnorePatterns: ['.stories.js', '.snap'],
   coverageReporters: ['html', 'text-summary', 'json-summary'],
   coverageThreshold: {
-    './development/build/transforms/**/*.js': {
+    global: {
+      branches: 44,
+      functions: 42,
+      lines: 52,
+      statements: 52,
+    },
+    './app/scripts/controllers/permissions/**/*.js': {
       branches: 100,
       functions: 100,
       lines: 100,
       statements: 100,
     },
   },
-  resetMocks: true,
+  // TODO: enable resetMocks
+  // resetMocks: true,
   restoreMocks: true,
-  testEnvironment: 'node',
-  testMatch: ['<rootDir>/build/**/*.test.js'],
+  setupFiles: ['<rootDir>/test/setup.js', '<rootDir>/test/env.js'],
+  setupFilesAfterEnv: ['<rootDir>/test/jest/setup.js'],
+  testMatch: [
+    '<rootDir>/ui/**/*.test.js',
+    '<rootDir>/shared/**/*.test.js',
+    '<rootDir>/app/scripts/lib/**/*.test.js',
+    '<rootDir>/app/scripts/migrations/*.test.js',
+    '<rootDir>/app/scripts/platforms/*.test.js',
+    '<rootDir>app/scripts/controllers/network/**/*.test.js',
+    '<rootDir>/app/scripts/controllers/permissions/**/*.test.js',
+  ],
   testTimeout: 2500,
+  transform: {
+    '^.+\\.[tj]sx?$': 'babel-jest',
+    '^.+\\.mdx$': '@storybook/addon-docs/jest-transform-mdx',
+  },
 };

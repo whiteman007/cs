@@ -139,7 +139,7 @@
     "@truffle/codec": "^0.11.18",
     "@truffle/decoder": "^5.1.0",
     "@zxing/browser": "^0.0.10",
-    "@zxing/library": "0.8.0",
+    "@zxing/library": "0.19.1",
     "analytics-node": "^3.4.0-beta.3",
     "await-semaphore": "^0.1.1",
     "base32-encode": "^1.2.0",
